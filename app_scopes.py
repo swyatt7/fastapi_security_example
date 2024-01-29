@@ -11,6 +11,7 @@ we will follow their notation on defining scopes:
 API_SCOPE_DICT = {
     "/read_foo/" : [
         "read:/",
-        "read:/foo"
+        "read:/foo",
+        "gcn.nasa.gov/kafka-public-consumer" #just so it works with example credentials from gcn
     ]
 }

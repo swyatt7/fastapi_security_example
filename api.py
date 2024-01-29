@@ -1,36 +1,54 @@
 from fastapi import FastAPI
 from datetime import datetime, timedelta, timezone
+from authlib.integrations.httpx_client import AsyncOAuth2Client  # type: ignore
+from authlib.integrations.base_client.errors import OAuthError
 
-from fastapi import Security, FastAPI
+from fastapi import Security, Depends, HTTPException, Request, status
 from fastapi.security import (
     SecurityScopes,
 )
-from jose import jwt
+from pydantic import BaseModel
 
 from app_scopes import API_SCOPE_DICT
-from auth import authenticate
+from auth import jwt_security
 
-SECRET_KEY = "09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7"
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+
+class AuthToken(BaseModel):
+    """Pydantic Model for OIDC Auth Token"""
+
+    access_token: str
+    expires_in: int
+    token_type: str
+    expires_at: int
+
+
+class VerifyAuth(BaseModel):
+    status: str = "success"
 
 app = FastAPI()
 
-#quick and easy way to get a valid jwt with custom scope
-@app.get("/generate_jwt/")
-async def generate_dummy_jwt(scope_example: str = "read:/"):
-    expires_delta = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    expire = datetime.now(timezone.utc) + expires_delta
-    data={
-        "sub": "sunglass_coolguy", 
-        "scopes": [scope_example],
-        "exp": expire
-    }
-    encoded_jwt = jwt.encode(data, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
+
+@app.post("/auth/token/")
+async def get_authentication_token(client_id: str, client_secret: str) -> AuthToken:
+    """Obtain an authorization token using GCN credentials."""
+    session = AsyncOAuth2Client(client_id, client_secret, scope={})
+    try:
+        token = await session.fetch_token(jwt_security.token_endpoint)
+    except OAuthError:
+        raise HTTPException(
+            status_code=401, detail="Invalid client_id or client_secret."
+        )
+    return AuthToken(**token)
 
 
-#decoroate our endpoint with our authenticate function as a security dependency
-@app.get("/read_foo/", dependencies=[Security(authenticate, scopes=API_SCOPE_DICT["/read_foo/"])])
+#decorate our endpoint with our jwt_security function as a security dependency
+@app.get("/auth/verify/", dependencies=[Security(jwt_security, scopes=[])])
+async def verify_authentication() -> VerifyAuth:
+    """Verify that the user is authenticated."""
+    return VerifyAuth()
+
+
+#decorate our endpoint with our jwt_security function as a security dependency
+@app.get("/read_foo/", dependencies=[Security(jwt_security, scopes=API_SCOPE_DICT["/read_foo/"])])
 async def read_foo():
     return [{"item": "Foo"}, {"item": "Bar"}]
